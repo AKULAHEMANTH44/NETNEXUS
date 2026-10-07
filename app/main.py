@@ -1,351 +1,911 @@
+import json
+import urllib.request
+import urllib.error
+
 import streamlit as st
 import pandas as pd
 
-from app.core.diagnostics import run_basic_diagnostics
-from app.core.decision_engine import diagnose
-from app.core.fault_scenarios import SCENARIOS, create_scenario_evidence
-from app.core.report_generator import create_report, save_report
-from app.core.evidence_timeline import build_evidence_timeline
 from app.ui import apply_styles
 
+from app.core.diagnostics import run_basic_diagnostics
+from app.core.decision_engine import diagnose
+
+from app.core.fault_scenarios import (
+    SCENARIOS,
+    create_scenario_evidence
+)
+
+from app.core.report_generator import (
+    create_report,
+    save_report
+)
+
+from app.core.evidence_timeline import (
+    build_evidence_timeline
+)
+
+
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
 st.set_page_config(
-    page_title="NetExplain - NETNEXUS",
+    page_title="NetExplain",
     page_icon="??",
     layout="wide"
 )
 
 apply_styles()
 
-st.title("NetExplain")
-st.caption("NETNEXUS - Explainable Connectivity Diagnostic System | PS-015")
+
+# ============================================================
+# LOCAL AGENT CONFIGURATION
+# ============================================================
+
+LOCAL_AGENT_URL = "http://127.0.0.1:8765"
 
 
-tab_live, tab_lab, tab_reports = st.tabs([
-    "Live Network Diagnosis",
-    "Controlled Fault Scenarios",
-    "Reports & Evidence"
-])
+def get_local_agent_health():
+    """
+    Check whether the NETNEXUS Local Agent is running
+    on the current computer.
+    """
+
+    try:
+        with urllib.request.urlopen(
+            f"{LOCAL_AGENT_URL}/health",
+            timeout=3
+        ) as response:
+
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+            return data.get("status") == "ONLINE"
+
+    except Exception:
+        return False
 
 
-with tab_live:
+def get_local_diagnosis():
+    """
+    Request real network evidence from the
+    NETNEXUS Local Agent.
+    """
+
+    try:
+        with urllib.request.urlopen(
+            f"{LOCAL_AGENT_URL}/diagnose",
+            timeout=20
+        ) as response:
+
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+            if data.get("status") != "ONLINE":
+                return None, "Local Agent returned an error."
+
+            evidence = data.get("evidence")
+
+            if not evidence:
+                return None, "Local Agent returned no evidence."
+
+            return evidence, None
+
+    except urllib.error.URLError:
+        return (
+            None,
+            "NETNEXUS Local Agent is not running on this computer."
+        )
+
+    except Exception as exc:
+        return (
+            None,
+            f"Unable to connect to Local Agent: {exc}"
+        )
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title("?? NetExplain")
+
+st.subheader(
+    "Explainable Connectivity Diagnostic System"
+)
+
+st.caption(
+    "TEAM NETNEXUS  |  SIH PS-015  |  SMART CITIES"
+)
+
+st.divider()
+
+
+# ============================================================
+# TABS
+# ============================================================
+
+live_tab, lab_tab, reports_tab = st.tabs(
+    [
+        "Live Network Diagnosis",
+        "Controlled Fault Scenarios",
+        "Reports & Evidence"
+    ]
+)
+
+
+# ============================================================
+# LIVE NETWORK DIAGNOSIS
+# ============================================================
+
+with live_tab:
+
     st.header("Live Network Diagnosis")
 
-    st.info(
-        "Runs non-destructive local connectivity tests for gateway "
-        "reachability, DNS resolution, Internet reachability and latency."
-    )
-
-    if st.button("Run Live Diagnosis", type="primary"):
-        with st.spinner("Collecting network evidence..."):
-            evidence = run_basic_diagnostics()
-            diagnosis = diagnose(evidence)
-            report = create_report(evidence, diagnosis)
-            timeline = build_evidence_timeline(evidence, diagnosis)
-
-        st.session_state["live_evidence"] = evidence
-        st.session_state["live_diagnosis"] = diagnosis
-        st.session_state["live_report"] = report
-        st.session_state["live_timeline"] = timeline
-
-    if "live_diagnosis" in st.session_state:
-        evidence = st.session_state["live_evidence"]
-        diagnosis = st.session_state["live_diagnosis"]
-        timeline = st.session_state["live_timeline"]
-
-        st.subheader("Diagnosis")
-
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric(
-            "Diagnosis",
-            diagnosis.get("label", "Unknown")
-        )
-
-        c2.metric(
-            "Confidence",
-            diagnosis.get("confidence", "Unknown")
-        )
-
-        c3.metric(
-            "Gateway",
-            "Reachable"
-            if (evidence.get("gateway_test") or {}).get("reachable")
-            else "Unreachable"
-        )
-
-        st.write(
-            diagnosis.get(
-                "reason",
-                "No explanation available."
-            )
-        )
-
-        st.subheader("Measured Evidence")
-
-        gateway = (evidence.get("gateway_test") or {})
-        dns = evidence.get("dns_test", {})
-        internet = evidence.get("internet_test", {})
-
-        rows = [
-            {
-                "Test": "Gateway Reachability",
-                "Result": (
-                    "Reachable"
-                    if gateway.get("reachable")
-                    else "Unreachable"
-                ),
-                "Latency (ms)": gateway.get("latency_ms"),
-                "Packet Loss (%)": gateway.get("packet_loss_pct")
-            },
-            {
-                "Test": "DNS Resolution",
-                "Result": (
-                    "Success"
-                    if dns.get("success")
-                    else "Failure"
-                ),
-                "Latency (ms)": dns.get("latency_ms"),
-                "Packet Loss (%)": None
-            },
-            {
-                "Test": "External Connectivity",
-                "Result": (
-                    "Reachable"
-                    if internet.get("reachable")
-                    else "Unreachable"
-                ),
-                "Latency (ms)": internet.get("latency_ms"),
-                "Packet Loss (%)": internet.get("packet_loss_pct")
-            }
-        ]
-
-        st.dataframe(
-            pd.DataFrame(rows),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.subheader("Evidence Timeline")
-
-        for item in timeline:
-            st.write(
-                f"Step {item.get('step', '?')} - {item.get('name', item.get('test', item.get('title', 'Evidence')))}\n"
-                f"{item.get('status', 'Recorded')} - {item.get('details', item.get('evidence', item.get('message', item.get('description', 'Evidence recorded.'))))}"
-            )
-
-
-with tab_lab:
-    st.header("Controlled Fault Scenario Lab")
-
     st.write(
-        "Controlled scenarios reproduce known connectivity conditions "
-        "for repeatable evaluation of the decision engine."
+        "Run a real connectivity diagnosis using the "
+        "NETNEXUS Local Agent on this computer."
     )
 
-    scenario_names = list(SCENARIOS.keys())
+    # --------------------------------------------------------
+    # LOCAL AGENT STATUS
+    # --------------------------------------------------------
 
-    selected = st.selectbox(
-        "Select Fault Scenario",
-        scenario_names
-    )
+    agent_online = get_local_agent_health()
 
-    if st.button("Run Controlled Scenario", type="primary"):
-        evidence = create_scenario_evidence(selected)
-        diagnosis = diagnose(evidence)
-        report = create_report(evidence, diagnosis)
-        timeline = build_evidence_timeline(evidence, diagnosis)
+    if agent_online:
 
-        st.session_state["lab_evidence"] = evidence
-        st.session_state["lab_diagnosis"] = diagnosis
-        st.session_state["lab_report"] = report
-        st.session_state["lab_timeline"] = timeline
-        st.session_state["lab_selected"] = selected
+        st.success(
+            "?? NETNEXUS Local Agent ONLINE"
+        )
 
-    if "lab_diagnosis" in st.session_state:
-        evidence = st.session_state["lab_evidence"]
-        diagnosis = st.session_state["lab_diagnosis"]
-        timeline = st.session_state["lab_timeline"]
-        selected = st.session_state.get("lab_selected", selected)
+        st.caption(
+            "Real diagnostics can be collected from this computer."
+        )
+
+    else:
+
+        st.warning(
+            "?? NETNEXUS Local Agent OFFLINE"
+        )
+
+        st.caption(
+            "Start agent.py on this computer to enable real "
+            "local network diagnosis."
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # RUN REAL DIAGNOSIS
+    # --------------------------------------------------------
+
+    if st.button(
+        "?? Run Real Live Diagnosis",
+        type="primary",
+        use_container_width=True
+    ):
+
+        with st.spinner(
+            "Collecting real network evidence..."
+        ):
+
+            evidence, error = get_local_diagnosis()
+
+        if error:
+
+            st.error(error)
+
+            st.info(
+                "Start the Local Agent with: "
+                "python .\\agent.py"
+            )
+
+        else:
+
+            result = diagnose(evidence)
+
+            timeline = build_evidence_timeline(
+                evidence,
+                result
+            )
+
+            report = create_report(
+                evidence,
+                result
+            )
+
+            st.session_state.live_data = {
+                "evidence": evidence,
+                "result": result,
+                "timeline": timeline,
+                "report": report
+            }
+
+            st.rerun()
+
+    # --------------------------------------------------------
+    # LIVE RESULTS
+    # --------------------------------------------------------
+
+    if "live_data" in st.session_state:
+
+        evidence = st.session_state.live_data["evidence"]
+        result = st.session_state.live_data["result"]
+        timeline = st.session_state.live_data["timeline"]
 
         st.divider()
 
-        st.subheader("Scenario Result")
+        st.subheader("Diagnosis")
 
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric(
-            "Diagnosis",
-            diagnosis.get("label", "Unknown")
+        diagnosis_text = result.get(
+            "diagnosis",
+            "INCONCLUSIVE"
         )
 
-        c2.metric(
-            "Confidence",
-            diagnosis.get("confidence", "Unknown")
+        confidence = result.get(
+            "confidence",
+            "Low"
         )
 
-        c3.metric(
-            "Scenario",
-            selected
+        reason = result.get(
+            "reason",
+            "Available evidence is insufficient."
+        )
+
+        if diagnosis_text == "INCONCLUSIVE":
+
+            st.warning(
+                f"?? {diagnosis_text}"
+            )
+
+        elif diagnosis_text == "GATEWAY UNREACHABLE":
+
+            st.error(
+                f"?? {diagnosis_text}"
+            )
+
+        elif diagnosis_text == "DNS FAILURE":
+
+            st.error(
+                f"?? {diagnosis_text}"
+            )
+
+        elif diagnosis_text == "PACKET LOSS DETECTED":
+
+            st.warning(
+                f"?? {diagnosis_text}"
+            )
+
+        elif diagnosis_text == "ELEVATED LATENCY":
+
+            st.warning(
+                f"?? {diagnosis_text}"
+            )
+
+        else:
+
+            st.success(
+                f"?? {diagnosis_text}"
+            )
+
+        st.write(
+            f"**Confidence:** {confidence}"
         )
 
         st.write(
-            diagnosis.get(
-                "reason",
-                "No explanation available."
-            )
+            f"**Reason:** {reason}"
         )
 
-        st.subheader("Measured / Simulated Evidence")
+        # ----------------------------------------------------
+        # REAL NETWORK SUMMARY
+        # ----------------------------------------------------
 
-        gateway = (evidence.get("gateway_test") or {})
-        dns = evidence.get("dns_test", {})
-        internet = evidence.get("internet_test", {})
-        throughput = evidence.get("throughput_test", {})
+        st.divider()
 
-        rows = [
+        st.subheader(
+            "Real Network Evidence"
+        )
+
+        gateway_test = (
+            evidence.get("gateway_test")
+            or {}
+        )
+
+        dns_test = (
+            evidence.get("dns_test")
+            or {}
+        )
+
+        internet_test = (
+            evidence.get("internet_test")
+            or {}
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+
+            st.metric(
+                "Gateway",
+                evidence.get(
+                    "gateway",
+                    "Not detected"
+                )
+            )
+
+        with col2:
+
+            st.metric(
+                "Gateway Latency",
+                (
+                    f"{gateway_test.get('latency_ms')} ms"
+                    if gateway_test.get("latency_ms")
+                    is not None
+                    else "N/A"
+                )
+            )
+
+        with col3:
+
+            st.metric(
+                "DNS",
+                (
+                    "PASS"
+                    if dns_test.get("success")
+                    else "FAIL"
+                )
+            )
+
+        with col4:
+
+            st.metric(
+                "Internet",
+                (
+                    "PASS"
+                    if internet_test.get("reachable")
+                    else "FAIL"
+                )
+            )
+
+        # ----------------------------------------------------
+        # DETAILED EVIDENCE
+        # ----------------------------------------------------
+
+        st.subheader(
+            "Measurement Evidence"
+        )
+
+        evidence_rows = [
             {
-                "Evidence": "Gateway",
-                "Result": (
-                    "Reachable"
-                    if gateway.get("reachable")
-                    else "Unreachable"
+                "Measurement": "Gateway",
+                "Value": evidence.get(
+                    "gateway",
+                    "Not detected"
                 ),
-                "Value": gateway.get("latency_ms")
+                "Status": (
+                    "PASS"
+                    if gateway_test.get("reachable")
+                    else "FAIL"
+                )
             },
             {
-                "Evidence": "DNS",
-                "Result": (
-                    "Success"
-                    if dns.get("success")
-                    else "Failure"
-                ),
-                "Value": dns.get("latency_ms")
-            },
-            {
-                "Evidence": "External Connectivity",
-                "Result": (
-                    "Reachable"
-                    if internet.get("reachable")
-                    else "Unreachable"
-                ),
-                "Value": internet.get("latency_ms")
-            },
-            {
-                "Evidence": "Packet Loss",
-                "Result": "Measured / Simulated",
-                "Value": internet.get("packet_loss_pct")
-            },
-            {
-                "Evidence": "Throughput",
-                "Result": (
-                    "Available"
-                    if throughput.get("success")
-                    else "Not measured"
-                ),
+                "Measurement": "Gateway Latency",
                 "Value": (
-                    f"{throughput.get('throughput_mbps')} Mbps"
-                    if throughput.get("throughput_mbps") is not None
+                    f"{gateway_test.get('latency_ms')} ms"
+                    if gateway_test.get("latency_ms")
+                    is not None
                     else "Not measured"
+                ),
+                "Status": (
+                    "MEASURED"
+                    if gateway_test.get("latency_ms")
+                    is not None
+                    else "UNAVAILABLE"
+                )
+            },
+            {
+                "Measurement": "Gateway Packet Loss",
+                "Value": (
+                    f"{gateway_test.get('packet_loss_percent')}%"
+                    if gateway_test.get(
+                        "packet_loss_percent"
+                    ) is not None
+                    else "Not measured"
+                ),
+                "Status": (
+                    "MEASURED"
+                    if gateway_test.get(
+                        "packet_loss_percent"
+                    ) is not None
+                    else "UNAVAILABLE"
+                )
+            },
+            {
+                "Measurement": "DNS Resolution",
+                "Value": dns_test.get(
+                    "hostname",
+                    "example.com"
+                ),
+                "Status": (
+                    "PASS"
+                    if dns_test.get("success")
+                    else "FAIL"
+                )
+            },
+            {
+                "Measurement": "DNS Response",
+                "Value": (
+                    f"{dns_test.get('resolution_ms')} ms"
+                    if dns_test.get("resolution_ms")
+                    is not None
+                    else "Not measured"
+                ),
+                "Status": (
+                    "MEASURED"
+                    if dns_test.get("resolution_ms")
+                    is not None
+                    else "UNAVAILABLE"
+                )
+            },
+            {
+                "Measurement": "External Connectivity",
+                "Value": internet_test.get(
+                    "host",
+                    "8.8.8.8"
+                ),
+                "Status": (
+                    "PASS"
+                    if internet_test.get("reachable")
+                    else "FAIL"
+                )
+            },
+            {
+                "Measurement": "Internet Latency",
+                "Value": (
+                    f"{internet_test.get('latency_ms')} ms"
+                    if internet_test.get("latency_ms")
+                    is not None
+                    else "Not measured"
+                ),
+                "Status": (
+                    "MEASURED"
+                    if internet_test.get("latency_ms")
+                    is not None
+                    else "UNAVAILABLE"
+                )
+            },
+            {
+                "Measurement": "Internet Packet Loss",
+                "Value": (
+                    f"{internet_test.get('packet_loss_percent')}%"
+                    if internet_test.get(
+                        "packet_loss_percent"
+                    ) is not None
+                    else "Not measured"
+                ),
+                "Status": (
+                    "MEASURED"
+                    if internet_test.get(
+                        "packet_loss_percent"
+                    ) is not None
+                    else "UNAVAILABLE"
                 )
             }
         ]
 
         st.dataframe(
-            pd.DataFrame(rows),
+            pd.DataFrame(evidence_rows),
             use_container_width=True,
             hide_index=True
         )
 
-        if throughput:
-            st.subheader("Throughput Evidence")
+        # ----------------------------------------------------
+        # EVIDENCE TIMELINE
+        # ----------------------------------------------------
 
-            tc1, tc2, tc3 = st.columns(3)
+        st.subheader(
+            "Evidence Timeline"
+        )
 
-            tc1.metric(
-                "Throughput",
-                (
-                    f"{throughput.get('throughput_mbps')} Mbps"
-                    if throughput.get("throughput_mbps") is not None
-                    else "Not measured"
+        st.dataframe(
+            pd.DataFrame(timeline),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ----------------------------------------------------
+        # AGENT INFORMATION
+        # ----------------------------------------------------
+
+        st.caption(
+            "Source: NETNEXUS Local Agent running on the "
+            "diagnosing computer."
+        )
+
+    else:
+
+        st.info(
+            "Click 'Run Real Live Diagnosis' to collect "
+            "real network evidence."
+        )
+
+
+# ============================================================
+# CONTROLLED FAULT SCENARIOS
+# ============================================================
+
+with lab_tab:
+
+    st.header(
+        "Controlled Fault Scenarios"
+    )
+
+    st.write(
+        "Use the controlled laboratory scenarios to "
+        "validate NetExplain's explainable decision rules."
+    )
+
+    scenario_name = st.selectbox(
+        "Select Fault Scenario",
+        list(SCENARIOS.keys())
+    )
+
+    scenario_description = SCENARIOS[
+        scenario_name
+    ].get(
+        "description",
+        ""
+    )
+
+    st.info(
+        scenario_description
+    )
+
+    if st.button(
+        "?? Run Controlled Scenario",
+        type="primary",
+        use_container_width=True
+    ):
+
+        with st.spinner(
+            "Running controlled scenario..."
+        ):
+
+            evidence = create_scenario_evidence(
+                scenario_name
+            )
+
+            result = diagnose(
+                evidence
+            )
+
+            timeline = build_evidence_timeline(
+                evidence,
+                result
+            )
+
+            report = create_report(
+                evidence,
+                result
+            )
+
+        st.session_state.scenario_data = {
+            "scenario": scenario_name,
+            "evidence": evidence,
+            "result": result,
+            "timeline": timeline,
+            "report": report
+        }
+
+        st.rerun()
+
+    # --------------------------------------------------------
+    # SCENARIO RESULTS
+    # --------------------------------------------------------
+
+    if "scenario_data" in st.session_state:
+
+        data = st.session_state.scenario_data
+
+        evidence = data["evidence"]
+        result = data["result"]
+        timeline = data["timeline"]
+
+        st.divider()
+
+        st.subheader(
+            f"Scenario Diagnosis — {data['scenario']}"
+        )
+
+        diagnosis_text = result.get(
+            "diagnosis",
+            "INCONCLUSIVE"
+        )
+
+        if diagnosis_text == "INCONCLUSIVE":
+
+            st.warning(
+                diagnosis_text
+            )
+
+        elif diagnosis_text == "GATEWAY UNREACHABLE":
+
+            st.error(
+                diagnosis_text
+            )
+
+        elif diagnosis_text == "DNS FAILURE":
+
+            st.error(
+                diagnosis_text
+            )
+
+        elif diagnosis_text == "PACKET LOSS DETECTED":
+
+            st.warning(
+                diagnosis_text
+            )
+
+        else:
+
+            st.success(
+                diagnosis_text
+            )
+
+        st.write(
+            f"**Confidence:** "
+            f"{result.get('confidence', 'Low')}"
+        )
+
+        st.write(
+            f"**Reason:** "
+            f"{result.get('reason', '')}"
+        )
+
+        # ----------------------------------------------------
+        # SCENARIO EVIDENCE
+        # ----------------------------------------------------
+
+        st.subheader(
+            "Scenario Evidence"
+        )
+
+        gateway_test = (
+            evidence.get("gateway_test")
+            or {}
+        )
+
+        dns_test = (
+            evidence.get("dns_test")
+            or {}
+        )
+
+        internet_test = (
+            evidence.get("internet_test")
+            or {}
+        )
+
+        scenario_rows = [
+            {
+                "Measurement": "Gateway",
+                "Value": evidence.get(
+                    "gateway",
+                    "Not detected"
+                ),
+                "Status": (
+                    "PASS"
+                    if gateway_test.get("reachable")
+                    else "FAIL"
+                )
+            },
+            {
+                "Measurement": "DNS",
+                "Value": dns_test.get(
+                    "hostname",
+                    "example.com"
+                ),
+                "Status": (
+                    "PASS"
+                    if dns_test.get("success")
+                    else "FAIL"
+                )
+            },
+            {
+                "Measurement": "Packet Loss",
+                "Value": (
+                    f"{internet_test.get('packet_loss_percent')}%"
+                    if internet_test.get(
+                        "packet_loss_percent"
+                    ) is not None
+                    else "Unavailable"
+                ),
+                "Status": "MEASURED"
+            },
+            {
+                "Measurement": "Latency",
+                "Value": (
+                    f"{internet_test.get('latency_ms')} ms"
+                    if internet_test.get("latency_ms")
+                    is not None
+                    else "Unavailable"
+                ),
+                "Status": "MEASURED"
+            }
+        ]
+
+        st.dataframe(
+            pd.DataFrame(scenario_rows),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ----------------------------------------------------
+        # THROUGHPUT EVIDENCE
+        # ----------------------------------------------------
+
+        throughput_test = (
+            evidence.get("throughput_test")
+            or {}
+        )
+
+        if throughput_test:
+
+            st.subheader(
+                "Throughput Evidence"
+            )
+
+            throughput_value = (
+                throughput_test.get(
+                    "throughput_mbps"
                 )
             )
 
-            tc2.metric(
-                "Loaded Condition",
-                "Yes"
-                if throughput.get("loaded_condition")
-                else "No"
+            loaded_condition = (
+                throughput_test.get(
+                    "loaded_condition"
+                )
             )
 
-            tc3.metric(
-                "Evidence Source",
-                "Controlled Simulation"
-                if throughput.get("source")
-                else "Unavailable"
+            throughput_rows = [
+                {
+                    "Measurement": "Throughput",
+                    "Value": (
+                        f"{throughput_value} Mbps"
+                        if throughput_value
+                        is not None
+                        else "Not measured"
+                    ),
+                    "Status": (
+                        "PASS"
+                        if throughput_test.get(
+                            "success"
+                        )
+                        else "UNAVAILABLE"
+                    )
+                },
+                {
+                    "Measurement": "Loaded Condition",
+                    "Value": (
+                        "YES"
+                        if loaded_condition
+                        else "NO"
+                    ),
+                    "Status": "SIMULATED"
+                },
+                {
+                    "Measurement": "Source",
+                    "Value": throughput_test.get(
+                        "source",
+                        "Controlled laboratory simulation"
+                    ),
+                    "Status": "REFERENCE"
+                }
+            ]
+
+            st.dataframe(
+                pd.DataFrame(throughput_rows),
+                use_container_width=True,
+                hide_index=True
             )
 
-            st.caption(
-                "Scenario throughput values are controlled laboratory "
-                "simulation evidence and are not Internet/WAN measurements."
-            )
+        # ----------------------------------------------------
+        # TIMELINE
+        # ----------------------------------------------------
 
-        st.subheader("Evidence Timeline")
+        st.subheader(
+            "Evidence Timeline"
+        )
 
-        for item in timeline:
-            st.write(
-                f"Step {item.get('step', '?')} - {item.get('name', item.get('test', item.get('title', 'Evidence')))}\n"
-                f"{item.get('status', 'Recorded')} - {item.get('details', item.get('evidence', item.get('message', item.get('description', 'Evidence recorded.'))))}"
-            )
+        st.dataframe(
+            pd.DataFrame(timeline),
+            use_container_width=True,
+            hide_index=True
+        )
 
 
-with tab_reports:
-    st.header("Reports & Evidence")
+# ============================================================
+# REPORTS & EVIDENCE
+# ============================================================
 
-    report_source = st.radio(
-        "Select report",
-        ["Live Diagnosis", "Controlled Scenario"]
+with reports_tab:
+
+    st.header(
+        "Reports & Evidence"
     )
 
-    if report_source == "Live Diagnosis":
-        report = st.session_state.get("live_report")
-    else:
-        report = st.session_state.get("lab_report")
+    report = None
+
+    if "live_data" in st.session_state:
+
+        report = st.session_state.live_data.get(
+            "report"
+        )
+
+        st.subheader(
+            "Latest Live Diagnostic Report"
+        )
+
+    elif "scenario_data" in st.session_state:
+
+        report = st.session_state.scenario_data.get(
+            "report"
+        )
+
+        st.subheader(
+            "Latest Controlled Scenario Report"
+        )
 
     if report:
-        st.text_area(
-            "Evidence-Based Report",
+
+        st.code(
             report,
-            height=500
+            language="text"
         )
 
         st.download_button(
-            "Download Report",
+            "? Download Report",
             data=report,
-            file_name="netnexus_diagnostic_report.txt",
+            file_name="NetExplain_Diagnostic_Report.txt",
             mime="text/plain"
         )
 
-        if st.button("Save Report to reports"):
-            path = save_report(report)
-            st.success(f"Report saved: {path}")
+        if st.button(
+            "?? Save Report to reports/"
+        ):
+
+            saved_path = save_report(
+                report
+            )
+
+            st.success(
+                f"Report saved: {saved_path}"
+            )
 
     else:
+
         st.info(
-            "Run a live diagnosis or controlled scenario first."
+            "Run a live diagnosis or controlled "
+            "scenario to generate a report."
         )
 
+
+# ============================================================
+# FOOTER
+# ============================================================
 
 st.divider()
 
 st.caption(
-    "NETNEXUS / NetExplain - PS-015 prototype. "
-    "The system does not claim physical cable damage, ISP-internal "
-    "root causes, or Wi-Fi interference without appropriate telemetry."
+    "NETNEXUS • NetExplain • PS-015 | "
+    "Measure. Understand. Explain. Escalate."
 )
 
-
-
-
-
-
+st.caption(
+    "NetExplain uses measurable network evidence and "
+    "transparent decision rules. It does not claim "
+    "physical cable damage, ISP-internal root causes, "
+    "or Wi-Fi interference without supporting telemetry."
+)
