@@ -152,13 +152,8 @@ with live_tab:
 
     st.header("Live Network Diagnosis")
 
-    st.write(
-        "Run a real connectivity diagnosis using the "
-        "NETNEXUS Local Agent on this computer."
-    )
-
     # --------------------------------------------------------
-    # LOCAL / CLOUD MODE
+    # RENDER / LOCAL DIAGNOSIS MODE
     # --------------------------------------------------------
 
     if is_render_environment():
@@ -167,32 +162,70 @@ with live_tab:
             "☁️ NETNEXUS Cloud Demo Mode"
         )
 
-        st.caption(
-            "This online deployment provides controlled "
-            "connectivity scenarios and diagnostic reports."
-        )
-
         st.write(
-            "Real local-network diagnosis requires the "
-            "NETNEXUS Local Agent running on the diagnosing PC."
+            "Run a live connectivity diagnosis from the "
+            "NETNEXUS cloud environment."
         )
 
-        st.divider()
+        if st.button(
+            "🔍 Run Live Diagnosis",
+            type="primary",
+            use_container_width=True
+        ):
 
-        st.subheader(
-            "Cloud Diagnostic Mode"
-        )
+            with st.spinner(
+                "Collecting cloud network evidence..."
+            ):
 
-        st.success(
-            "🟢 Controlled diagnostic system available"
-        )
+                try:
+                    evidence = run_basic_diagnostics()
+                    error = None
 
-        st.caption(
-            "Use the Controlled Fault Scenarios tab to "
-            "demonstrate the PS-015 fault cases."
-        )
+                except Exception as exc:
+                    evidence = None
+                    error = str(exc)
+
+            if error:
+
+                st.error(
+                    f"Live diagnosis failed: {error}"
+                )
+
+            elif not evidence:
+
+                st.error(
+                    "Live diagnosis returned no network evidence."
+                )
+
+            else:
+
+                result = diagnose(evidence)
+
+                timeline = build_evidence_timeline(
+                    evidence,
+                    result
+                )
+
+                report = create_report(
+                    evidence,
+                    result
+                )
+
+                st.session_state.live_data = {
+                    "evidence": evidence,
+                    "result": result,
+                    "timeline": timeline,
+                    "report": report
+                }
+
+                st.rerun()
 
     else:
+
+        st.write(
+            "Run a real connectivity diagnosis using the "
+            "NETNEXUS Local Agent on this computer."
+        )
 
         # ----------------------------------------------------
         # LOCAL AGENT STATUS
@@ -245,7 +278,7 @@ with live_tab:
 
                 st.info(
                     "Start the Local Agent with: "
-                    "python .\\agent.py"
+                    "python .\agent.py"
                 )
 
             else:
@@ -271,7 +304,6 @@ with live_tab:
 
                 st.rerun()
 
-    # --------------------------------------------------------
     # LIVE RESULTS
     # --------------------------------------------------------
 
