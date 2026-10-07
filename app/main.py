@@ -1,4 +1,5 @@
 import json
+import os
 import urllib.request
 import urllib.error
 
@@ -45,11 +46,18 @@ apply_styles()
 LOCAL_AGENT_URL = "http://127.0.0.1:8765"
 
 
+def is_render_environment():
+    return os.getenv("RENDER", "").lower() == "true"
+
+
 def get_local_agent_health():
     """
     Check whether the NETNEXUS Local Agent is running
     on the current computer.
     """
+
+    if is_render_environment():
+        return False
 
     try:
         with urllib.request.urlopen(
@@ -150,81 +158,118 @@ with live_tab:
     )
 
     # --------------------------------------------------------
-    # LOCAL AGENT STATUS
+    # LOCAL / CLOUD MODE
     # --------------------------------------------------------
 
-    agent_online = get_local_agent_health()
+    if is_render_environment():
 
-    if agent_online:
-
-        st.success(
-            "?? NETNEXUS Local Agent ONLINE"
+        st.info(
+            "☁️ NETNEXUS Cloud Demo Mode"
         )
 
         st.caption(
-            "Real diagnostics can be collected from this computer."
+            "This online deployment provides controlled "
+            "connectivity scenarios and diagnostic reports."
+        )
+
+        st.write(
+            "Real local-network diagnosis requires the "
+            "NETNEXUS Local Agent running on the diagnosing PC."
+        )
+
+        st.divider()
+
+        st.subheader(
+            "Cloud Diagnostic Mode"
+        )
+
+        st.success(
+            "🟢 Controlled diagnostic system available"
+        )
+
+        st.caption(
+            "Use the Controlled Fault Scenarios tab to "
+            "demonstrate the PS-015 fault cases."
         )
 
     else:
 
-        st.warning(
-            "?? NETNEXUS Local Agent OFFLINE"
-        )
+        # ----------------------------------------------------
+        # LOCAL AGENT STATUS
+        # ----------------------------------------------------
 
-        st.caption(
-            "Start agent.py on this computer to enable real "
-            "local network diagnosis."
-        )
+        agent_online = get_local_agent_health()
 
-    st.divider()
+        if agent_online:
 
-    # --------------------------------------------------------
-    # RUN REAL DIAGNOSIS
-    # --------------------------------------------------------
+            st.success(
+                "🟢 NETNEXUS Local Agent ONLINE"
+            )
 
-    if st.button(
-        "?? Run Real Live Diagnosis",
-        type="primary",
-        use_container_width=True
-    ):
-
-        with st.spinner(
-            "Collecting real network evidence..."
-        ):
-
-            evidence, error = get_local_diagnosis()
-
-        if error:
-
-            st.error(error)
-
-            st.info(
-                "Start the Local Agent with: "
-                "python .\\agent.py"
+            st.caption(
+                "Real diagnostics can be collected from this computer."
             )
 
         else:
 
-            result = diagnose(evidence)
-
-            timeline = build_evidence_timeline(
-                evidence,
-                result
+            st.warning(
+                "🟠 NETNEXUS Local Agent OFFLINE"
             )
 
-            report = create_report(
-                evidence,
-                result
+            st.caption(
+                "Start agent.py on this computer to enable real "
+                "local network diagnosis."
             )
 
-            st.session_state.live_data = {
-                "evidence": evidence,
-                "result": result,
-                "timeline": timeline,
-                "report": report
-            }
+        st.divider()
 
-            st.rerun()
+        # ----------------------------------------------------
+        # RUN REAL DIAGNOSIS
+        # ----------------------------------------------------
+
+        if st.button(
+            "🔍 Run Real Live Diagnosis",
+            type="primary",
+            use_container_width=True
+        ):
+
+            with st.spinner(
+                "Collecting real network evidence..."
+            ):
+
+                evidence, error = get_local_diagnosis()
+
+            if error:
+
+                st.error(error)
+
+                st.info(
+                    "Start the Local Agent with: "
+                    "python .\\agent.py"
+                )
+
+            else:
+
+                result = diagnose(evidence)
+
+                timeline = build_evidence_timeline(
+                    evidence,
+                    result
+                )
+
+                report = create_report(
+                    evidence,
+                    result
+                )
+
+                st.session_state.live_data = {
+                    "evidence": evidence,
+                    "result": result,
+                    "timeline": timeline,
+                    "report": report
+                }
+
+                st.rerun()
 
     # --------------------------------------------------------
     # LIVE RESULTS
