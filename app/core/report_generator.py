@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from datetime import datetime
 
 
@@ -15,10 +15,10 @@ def create_report(evidence, diagnosis):
         "SIMULATED CONTROLLED LAB SCENARIO"
     )
 
-    gateway_test = evidence.get("gateway_test", {})
-    dns_test = evidence.get("dns_test", {})
-    internet_test = evidence.get("internet_test", {})
-    throughput_test = evidence.get("throughput_test", {})
+    gateway_test = evidence.get("gateway_test") or {}
+    dns_test = evidence.get("dns_test") or {}
+    internet_test = evidence.get("internet_test") or {}
+    throughput_test = evidence.get("throughput_test") or {}
 
     report = f"""
 NETEXPLAIN CONNECTIVITY DIAGNOSTIC REPORT
@@ -164,3 +164,5 @@ def save_report(report_text):
     filename.write_text(report_text, encoding="utf-8")
 
     return filename
+
+
