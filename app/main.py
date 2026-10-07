@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 
 from app.core.diagnostics import run_basic_diagnostics
@@ -11,7 +11,7 @@ from app.ui import apply_styles
 
 st.set_page_config(
     page_title="NetExplain - NETNEXUS",
-    page_icon="🌐",
+    page_icon="??",
     layout="wide"
 )
 
@@ -70,7 +70,7 @@ with tab_live:
         c3.metric(
             "Gateway",
             "Reachable"
-            if evidence.get("gateway_test", {}).get("reachable")
+            if (evidence.get("gateway_test") or {}).get("reachable")
             else "Unreachable"
         )
 
@@ -83,7 +83,7 @@ with tab_live:
 
         st.subheader("Measured Evidence")
 
-        gateway = evidence.get("gateway_test", {})
+        gateway = (evidence.get("gateway_test") or {})
         dns = evidence.get("dns_test", {})
         internet = evidence.get("internet_test", {})
 
@@ -198,7 +198,7 @@ with tab_lab:
 
         st.subheader("Measured / Simulated Evidence")
 
-        gateway = evidence.get("gateway_test", {})
+        gateway = (evidence.get("gateway_test") or {})
         dns = evidence.get("dns_test", {})
         internet = evidence.get("internet_test", {})
         throughput = evidence.get("throughput_test", {})
@@ -343,6 +343,7 @@ st.caption(
     "The system does not claim physical cable damage, ISP-internal "
     "root causes, or Wi-Fi interference without appropriate telemetry."
 )
+
 
 
 
